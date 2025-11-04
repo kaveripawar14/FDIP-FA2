@@ -1,0 +1,85 @@
+import os
+from pathlib import Path
+import cv2
+import torch
+import pandas as pd
+from PIL import Image
+import matplotlib.pyplot as plt
+import math
+
+
+base_path = r"C:\FDIP\Traffic_management_project\Dataset\images\Traffic Management\Traffic Dataset\images"
+output_csv = os.path.join(base_path, "vehicle_counts.csv")
+processed_folder = os.path.join(base_path, "processed")
+os.makedirs(processed_folder, exist_ok=True)
+
+
+print("Loading YOLOv8 model...")
+model = torch.hub.load('ultralytics/yolov5', 'yolov5s', pretrained=True)
+print(" Model loaded successfully!\n")
+
+vehicle_classes = ['car', 'bus', 'truck', 'motorbike']
+
+
+image_files = []
+for root, dirs, files in os.walk(base_path):
+    for f in files:
+        if f.lower().endswith(('.jpg', '.jpeg', '.png')):
+            image_files.append(os.path.join(root, f))
+
+print(f" Total Images Found: {len(image_files)}")
+if len(image_files) == 0:
+    print(" No images found! Check folder path above.")
+    exit()
+
+all_counts = []
+
+for i, img_path in enumerate(image_files):
+    print(f"\n Processing Image {i+1}/{len(image_files)}: {os.path.basename(img_path)}")
+    img = cv2.imread(img_path)
+    if img is None:
+        print(" Error reading image!")
+        continue
+    img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+
+  
+    results = model(img_rgb)
+    df = results.pandas().xyxy[0]
+    vehicles = df[df['name'].isin(vehicle_classes)]
+
+    
+    counts = {vehicle: 0 for vehicle in vehicle_classes}
+   
+    detected_counts = vehicles['name'].value_counts().to_dict()
+    for vehicle, count in detected_counts.items():
+        counts[vehicle] = int(count)
+
+    counts['image'] = os.path.relpath(img_path, base_path)
+    counts['total'] = sum(counts[vehicle] for vehicle in vehicle_classes)
+    all_counts.append(counts)
+
+   
+    for idx, row in vehicles.iterrows():
+        x1, y1, x2, y2 = int(row['xmin']), int(row['ymin']), int(row['xmax']), int(row['ymax'])
+        label = row['name']
+        conf = row['confidence']
+        cv2.rectangle(img, (x1, y1), (x2, y2), (0,255,0), 2)
+        cv2.putText(img, f"{label}:{conf:.2f}", (x1, y1-5), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0,255,0), 2)
+
+    save_path = os.path.join(processed_folder, os.path.relpath(img_path, base_path))
+    Path(os.path.dirname(save_path)).mkdir(parents=True, exist_ok=True)
+    cv2.imwrite(save_path, img)
+
+df_counts = pd.DataFrame(all_counts)
+
+
+numeric_columns = ['car', 'bus', 'truck', 'motorbike', 'total']
+for col in numeric_columns:
+    if col in df_counts.columns:
+        df_counts[col] = df_counts[col].fillna(0).astype(int)
+
+
+df_counts = df_counts[['image'] + vehicle_classes + ['total']]
+df_counts.to_csv(output_csv, index=False)
+print(f"\n Vehicle counts saved to CSV: {output_csv}")
+print(" All images processed successfully!") 

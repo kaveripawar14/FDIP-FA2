@@ -1,0 +1,627 @@
+import cv2
+import numpy as np
+import matplotlib.pyplot as plt
+import os
+from datetime import datetime
+
+class ImageProcessingToolkit:
+    def __init__(self):
+        print("Initializing Image Processing Toolkit...")
+        
+    # ==================== NOISE REMOVAL FILTERS ====================
+    
+    def apply_gaussian_blur(self, image, kernel_size=5):
+        """Apply Gaussian blur for noise removal"""
+        return cv2.GaussianBlur(image, (kernel_size, kernel_size), 0)
+    
+    def apply_median_blur(self, image, kernel_size=5):
+        """Apply median filter for salt-and-pepper noise"""
+        return cv2.medianBlur(image, kernel_size)
+    
+    def apply_bilateral_filter(self, image, d=9, sigma_color=75, sigma_space=75):
+        """Apply bilateral filter (edge-preserving)"""
+        return cv2.bilateralFilter(image, d, sigma_color, sigma_space)
+    
+    def apply_nlm_denoising(self, image, h=10, template_window_size=7, search_window_size=21):
+        """Apply Non-Local Means Denoising"""
+        return cv2.fastNlMeansDenoisingColored(image, None, h, h, template_window_size, search_window_size)
+    
+    # ==================== EDGE DETECTION FILTERS ====================
+    
+    def apply_sobel_edge_detection(self, image, ksize=3):
+        """Apply Sobel edge detection"""
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        
+        sobelx = cv2.Sobel(gray, cv2.CV_64F, 1, 0, ksize=ksize)
+        sobely = cv2.Sobel(gray, cv2.CV_64F, 0, 1, ksize=ksize)
+        
+        sobel_combined = np.sqrt(sobelx**2 + sobely**2)
+        sobel_combined = np.uint8(sobel_combined / sobel_combined.max() * 255)
+        
+        return cv2.cvtColor(sobel_combined, cv2.COLOR_GRAY2BGR)
+    
+    def apply_canny_edge_detection(self, image, low_threshold=50, high_threshold=150):
+        """Apply Canny edge detection"""
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        edges = cv2.Canny(gray, low_threshold, high_threshold)
+        return cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
+    
+    def apply_laplacian_edge_detection(self, image, ksize=3):
+        """Apply Laplacian edge detection"""
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        laplacian = cv2.Laplacian(gray, cv2.CV_64F, ksize=ksize)
+        laplacian = np.uint8(np.absolute(laplacian))
+        return cv2.cvtColor(laplacian, cv2.COLOR_GRAY2BGR)
+    
+    def apply_prewitt_edge_detection(self, image):
+        """Apply Prewitt edge detection"""
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        
+        kernelx = np.array([[1, 1, 1], [0, 0, 0], [-1, -1, -1]])
+        kernely = np.array([[-1, 0, 1], [-1, 0, 1], [-1, 0, 1]])
+        
+        prewittx = cv2.filter2D(gray, -1, kernelx)
+        prewitty = cv2.filter2D(gray, -1, kernely)
+        
+        prewitt_combined = np.sqrt(prewittx**2 + prewitty**2)
+        prewitt_combined = np.uint8(prewitt_combined / prewitt_combined.max() * 255)
+        
+        return cv2.cvtColor(prewitt_combined, cv2.COLOR_GRAY2BGR)
+    
+    # ==================== SHARPENING FILTERS ====================
+    
+    def apply_unsharp_masking(self, image, strength=1.5, kernel_size=(5,5)):
+        """Apply unsharp masking for image sharpening"""
+        blurred = cv2.GaussianBlur(image, kernel_size, 0)
+        sharpened = cv2.addWeighted(image, 1.0 + strength, blurred, -strength, 0)
+        return sharpened
+    
+    def apply_laplacian_sharpening(self, image, ksize=3):
+        """Apply Laplacian sharpening"""
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        laplacian = cv2.Laplacian(gray, cv2.CV_64F, ksize=ksize)
+        
+        # Convert back to 8-bit and combine with original
+        sharpened = cv2.convertScaleAbs(gray - laplacian)
+        return cv2.cvtColor(sharpened, cv2.COLOR_GRAY2BGR)
+    
+    def apply_custom_sharpening(self, image, strength=1.0):
+        """Apply custom sharpening kernel"""
+        kernel = np.array([[-1, -1, -1],
+                          [-1,  9, -1],
+                          [-1, -1, -1]]) * strength
+        return cv2.filter2D(image, -1, kernel)
+    
+    # ==================== CONTRAST ENHANCEMENT ====================
+    
+    def apply_histogram_equalization(self, image):
+        """Apply histogram equalization"""
+        # Convert to YUV color space
+        yuv = cv2.cvtColor(image, cv2.COLOR_BGR2YUV)
+        yuv[:,:,0] = cv2.equalizeHist(yuv[:,:,0])
+        return cv2.cvtColor(yuv, cv2.COLOR_YUV2BGR)
+    
+    def apply_clahe(self, image, clip_limit=2.0, grid_size=(8,8)):
+        """Apply Contrast Limited Adaptive Histogram Equalization"""
+        lab = cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
+        lab_planes = list(cv2.split(lab))
+        clahe = cv2.createCLAHE(clipLimit=clip_limit, tileGridSize=grid_size)
+        lab_planes[0] = clahe.apply(lab_planes[0])
+        lab = cv2.merge(lab_planes)
+        return cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
+    
+    def apply_gamma_correction(self, image, gamma=1.2):
+        """Apply gamma correction for brightness adjustment"""
+        inv_gamma = 1.0 / gamma
+        table = np.array([((i / 255.0) ** inv_gamma) * 255 for i in np.arange(0, 256)]).astype("uint8")
+        return cv2.LUT(image, table)
+    
+    def apply_contrast_stretching(self, image, low_percent=2, high_percent=98):
+        """Apply contrast stretching using percentile method"""
+        # Convert to float32 for processing
+        img_float = image.astype(np.float32) / 255.0
+        
+        # Calculate percentiles for each channel
+        p_low = np.percentile(img_float, low_percent, axis=(0,1))
+        p_high = np.percentile(img_float, high_percent, axis=(0,1))
+        
+        # Stretch contrast for each channel
+        stretched = np.zeros_like(img_float)
+        for i in range(3):
+            channel = img_float[:,:,i]
+            stretched[:,:,i] = (channel - p_low[i]) / (p_high[i] - p_low[i])
+            stretched[:,:,i] = np.clip(stretched[:,:,i], 0, 1)
+        
+        return (stretched * 255).astype(np.uint8)
+    
+    # ==================== SEGMENTATION TECHNIQUES ====================
+    
+    def apply_otsu_thresholding(self, image):
+        """Apply Otsu's thresholding for segmentation"""
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+        return cv2.cvtColor(thresh, cv2.COLOR_GRAY2BGR)
+    
+    def apply_adaptive_thresholding(self, image, block_size=11, C=2):
+        """Apply adaptive thresholding"""
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        thresh = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+                                      cv2.THRESH_BINARY, block_size, C)
+        return cv2.cvtColor(thresh, cv2.COLOR_GRAY2BGR)
+    
+    def apply_watershed_segmentation(self, image):
+        """Apply watershed segmentation"""
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        _, thresh = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+        
+        # Noise removal
+        kernel = np.ones((3,3), np.uint8)
+        opening = cv2.morphologyEx(thresh, cv2.MORPH_OPEN, kernel, iterations=2)
+        
+        # Sure background area
+        sure_bg = cv2.dilate(opening, kernel, iterations=3)
+        
+        # Finding sure foreground area
+        dist_transform = cv2.distanceTransform(opening, cv2.DIST_L2, 5)
+        _, sure_fg = cv2.threshold(dist_transform, 0.7*dist_transform.max(), 255, 0)
+        
+        # Finding unknown region
+        sure_fg = np.uint8(sure_fg)
+        unknown = cv2.subtract(sure_bg, sure_fg)
+        
+        # Marker labelling
+        _, markers = cv2.connectedComponents(sure_fg)
+        markers = markers + 1
+        markers[unknown == 255] = 0
+        
+        markers = cv2.watershed(image, markers)
+        image[markers == -1] = [255, 0, 0]
+        
+        return image
+    
+    def apply_kmeans_segmentation(self, image, k=3):
+        """Apply K-means clustering for segmentation"""
+        # Reshape image to 2D array of pixels
+        pixel_values = image.reshape((-1, 3))
+        pixel_values = np.float32(pixel_values)
+        
+        # Define criteria and apply kmeans
+        criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 100, 0.2)
+        _, labels, centers = cv2.kmeans(pixel_values, k, None, criteria, 10, cv2.KMEANS_RANDOM_CENTERS)
+        
+        # Convert back to 8-bit values
+        centers = np.uint8(centers)
+        
+        # Flatten the labels array
+        labels = labels.flatten()
+        
+        # Convert all pixels to the color of the centroids
+        segmented_image = centers[labels]
+        
+        # Reshape back to original image dimension
+        segmented_image = segmented_image.reshape(image.shape)
+        
+        return segmented_image
+    
+    def apply_grabcut_segmentation(self, image, rect=None):
+        """Apply GrabCut segmentation"""
+        if rect is None:
+            rect = (50, 50, image.shape[1]-100, image.shape[0]-100)  # Default rectangle
+        
+        mask = np.zeros(image.shape[:2], np.uint8)
+        bgd_model = np.zeros((1, 65), np.float64)
+        fgd_model = np.zeros((1, 65), np.float64)
+        
+        cv2.grabCut(image, mask, rect, bgd_model, fgd_model, 5, cv2.GC_INIT_WITH_RECT)
+        
+        mask2 = np.where((mask == 2) | (mask == 0), 0, 1).astype('uint8')
+        segmented = image * mask2[:, :, np.newaxis]
+        
+        return segmented
+    
+    # ==================== MORPHOLOGICAL OPERATIONS ====================
+    
+    def apply_erosion(self, image, kernel_size=3, iterations=1):
+        """Apply erosion morphological operation"""
+        kernel = np.ones((kernel_size, kernel_size), np.uint8)
+        return cv2.erode(image, kernel, iterations=iterations)
+    
+    def apply_dilation(self, image, kernel_size=3, iterations=1):
+        """Apply dilation morphological operation"""
+        kernel = np.ones((kernel_size, kernel_size), np.uint8)
+        return cv2.dilate(image, kernel, iterations=iterations)
+    
+    def apply_opening(self, image, kernel_size=3):
+        """Apply opening (erosion followed by dilation)"""
+        kernel = np.ones((kernel_size, kernel_size), np.uint8)
+        return cv2.morphologyEx(image, cv2.MORPH_OPEN, kernel)
+    
+    def apply_closing(self, image, kernel_size=3):
+        """Apply closing (dilation followed by erosion)"""
+        kernel = np.ones((kernel_size, kernel_size), np.uint8)
+        return cv2.morphologyEx(image, cv2.MORPH_CLOSE, kernel)
+    
+    def apply_gradient(self, image, kernel_size=3):
+        """Apply morphological gradient"""
+        kernel = np.ones((kernel_size, kernel_size), np.uint8)
+        return cv2.morphologyEx(image, cv2.MORPH_GRADIENT, kernel)
+    
+    # ==================== FREQUENCY DOMAIN FILTERS ====================
+    
+    def apply_fourier_transform(self, image):
+        """Apply Fourier Transform for frequency analysis"""
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        
+        # Fourier Transform
+        dft = cv2.dft(np.float32(gray), flags=cv2.DFT_COMPLEX_OUTPUT)
+        dft_shift = np.fft.fftshift(dft)
+        
+        # Magnitude spectrum
+        magnitude_spectrum = 20 * np.log(cv2.magnitude(dft_shift[:,:,0], dft_shift[:,:,1]) + 1)
+        magnitude_spectrum = cv2.normalize(magnitude_spectrum, None, 0, 255, cv2.NORM_MINMAX)
+        
+        return cv2.cvtColor(magnitude_spectrum.astype(np.uint8), cv2.COLOR_GRAY2BGR)
+    
+    def apply_high_pass_filter(self, image, cutoff=30):
+        """Apply high-pass filter in frequency domain"""
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        
+        # Fourier Transform
+        dft = cv2.dft(np.float32(gray), flags=cv2.DFT_COMPLEX_OUTPUT)
+        dft_shift = np.fft.fftshift(dft)
+        
+        # Create high-pass filter
+        rows, cols = gray.shape
+        crow, ccol = rows // 2, cols // 2
+        mask = np.ones((rows, cols, 2), np.uint8)
+        r = cutoff
+        center = [crow, ccol]
+        x, y = np.ogrid[:rows, :cols]
+        mask_area = (x - center[0]) ** 2 + (y - center[1]) ** 2 <= r*r
+        mask[mask_area] = 0
+        
+        # Apply filter and inverse DFT
+        fshift = dft_shift * mask
+        f_ishift = np.fft.ifftshift(fshift)
+        img_back = cv2.idft(f_ishift)
+        img_back = cv2.magnitude(img_back[:,:,0], img_back[:,:,1])
+        
+        img_back = cv2.normalize(img_back, None, 0, 255, cv2.NORM_MINMAX)
+        return cv2.cvtColor(img_back.astype(np.uint8), cv2.COLOR_GRAY2BGR)
+    
+    # ==================== COLOR SPACE MANIPULATION ====================
+    
+    def convert_to_hsv(self, image):
+        """Convert image to HSV color space"""
+        return cv2.cvtColor(image, cv2.COLOR_BGR2HSV)
+    
+    def convert_to_lab(self, image):
+        """Convert image to LAB color space"""
+        return cv2.cvtColor(image, cv2.COLOR_BGR2LAB)
+    
+    def convert_to_ycrcb(self, image):
+        """Convert image to YCrCb color space"""
+        return cv2.cvtColor(image, cv2.COLOR_BGR2YCrCb)
+    
+    def apply_color_quantization(self, image, k=8):
+        """Apply color quantization using k-means"""
+        data = np.float32(image).reshape((-1, 3))
+        
+        criteria = (cv2.TERM_CRITERIA_EPS + cv2.TERM_CRITERIA_MAX_ITER, 20, 1.0)
+        _, labels, centers = cv2.kmeans(data, k, None, criteria, 10, cv2.KMEANS_RANDOM_CENTERS)
+        
+        centers = np.uint8(centers)
+        quantized = centers[labels.flatten()]
+        quantized = quantized.reshape(image.shape)
+        
+        return quantized
+    
+    # ==================== SPECIAL EFFECTS ====================
+    
+    def apply_emboss_effect(self, image):
+        """Apply emboss effect"""
+        kernel = np.array([[-2, -1, 0],
+                          [-1,  1, 1],
+                          [ 0,  1, 2]])
+        return cv2.filter2D(image, -1, kernel)
+    
+    def apply_sepia_effect(self, image):
+        """Apply sepia tone effect"""
+        sepia_filter = np.array([[0.272, 0.534, 0.131],
+                                [0.349, 0.686, 0.168],
+                                [0.393, 0.769, 0.189]])
+        sepia = cv2.transform(image, sepia_filter)
+        sepia = np.clip(sepia, 0, 255)
+        return sepia.astype(np.uint8)
+    
+    def apply_sketch_effect(self, image):
+        """Apply pencil sketch effect"""
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        inv_gray = 255 - gray
+        blur = cv2.GaussianBlur(inv_gray, (21, 21), 0)
+        sketch = cv2.divide(gray, 255 - blur, scale=256)
+        return cv2.cvtColor(sketch, cv2.COLOR_GRAY2BGR)
+    
+    # ==================== COMPREHENSIVE PROCESSING PIPELINES ====================
+    
+    def create_enhancement_pipeline(self, image):
+        """Complete image enhancement pipeline"""
+        print("Running comprehensive enhancement pipeline...")
+        
+        results = {}
+        
+        # Original
+        results['Original'] = image
+        
+        # Noise removal
+        results['Gaussian Blur'] = self.apply_gaussian_blur(image)
+        results['Median Blur'] = self.apply_median_blur(image)
+        results['Bilateral Filter'] = self.apply_bilateral_filter(image)
+        results['NLM Denoising'] = self.apply_nlm_denoising(image)
+        
+        # Contrast enhancement
+        results['Histogram Equalization'] = self.apply_histogram_equalization(image)
+        results['CLAHE'] = self.apply_clahe(image)
+        results['Gamma Correction'] = self.apply_gamma_correction(image, 1.2)
+        results['Contrast Stretching'] = self.apply_contrast_stretching(image)
+        
+        # Sharpening
+        results['Unsharp Masking'] = self.apply_unsharp_masking(image)
+        results['Custom Sharpening'] = self.apply_custom_sharpening(image)
+        
+        # Edge detection
+        results['Canny Edges'] = self.apply_canny_edge_detection(image)
+        results['Sobel Edges'] = self.apply_sobel_edge_detection(image)
+        results['Laplacian Edges'] = self.apply_laplacian_edge_detection(image)
+        results['Prewitt Edges'] = self.apply_prewitt_edge_detection(image)
+        
+        # Segmentation
+        results['Otsu Thresholding'] = self.apply_otsu_thresholding(image)
+        results['Adaptive Thresholding'] = self.apply_adaptive_thresholding(image)
+        results['K-means (k=3)'] = self.apply_kmeans_segmentation(image, k=3)
+        results['Watershed'] = self.apply_watershed_segmentation(image)
+        
+        # Morphological operations
+        results['Erosion'] = self.apply_erosion(image)
+        results['Dilation'] = self.apply_dilation(image)
+        results['Opening'] = self.apply_opening(image)
+        results['Closing'] = self.apply_closing(image)
+        
+        # Frequency domain
+        results['Fourier Transform'] = self.apply_fourier_transform(image)
+        results['High Pass Filter'] = self.apply_high_pass_filter(image)
+        
+        # Color space
+        results['HSV'] = self.convert_to_hsv(image)
+        results['LAB'] = self.convert_to_lab(image)
+        results['Color Quantization'] = self.apply_color_quantization(image)
+        
+        # Special effects
+        results['Emboss Effect'] = self.apply_emboss_effect(image)
+        results['Sepia Effect'] = self.apply_sepia_effect(image)
+        results['Sketch Effect'] = self.apply_sketch_effect(image)
+        
+        return results
+    
+    def create_comparison_grid(self, processed_results, title="Image Processing Techniques"):
+        """Create a grid comparison of all processing techniques"""
+        techniques = list(processed_results.keys())
+        
+        # Calculate grid size
+        n_techniques = len(techniques)
+        cols = 4
+        rows = (n_techniques + cols - 1) // cols
+        
+        fig, axes = plt.subplots(rows, cols, figsize=(20, 5*rows))
+        fig.suptitle(title, fontsize=16, fontweight='bold')
+        
+        # Flatten axes array for easy indexing
+        if rows > 1:
+            axes = axes.flatten()
+        else:
+            axes = [axes] if cols == 1 else axes
+        
+        for i, technique in enumerate(techniques):
+            if i < len(axes):
+                # Convert BGR to RGB for matplotlib
+                img_rgb = cv2.cvtColor(processed_results[technique], cv2.COLOR_BGR2RGB)
+                axes[i].imshow(img_rgb)
+                axes[i].set_title(technique, fontweight='bold', fontsize=8)
+                axes[i].axis('off')
+        
+        # Hide empty subplots
+        for i in range(len(techniques), len(axes)):
+            axes[i].axis('off')
+        
+        plt.tight_layout()
+        return fig
+    
+    def save_processing_results(self, processed_results, output_dir="processing_results"):
+        """Save all processing results to files"""
+        os.makedirs(output_dir, exist_ok=True)
+        
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        
+        for technique, result in processed_results.items():
+            filename = f"{output_dir}/{timestamp}_{technique.replace(' ', '_')}.jpg"
+            cv2.imwrite(filename, result)
+            print(f" Saved: {filename}")
+        
+        # Save comparison grid
+        fig = self.create_comparison_grid(processed_results)
+        fig.savefig(f"{output_dir}/{timestamp}_comparison_grid.png", dpi=300, bbox_inches='tight')
+        plt.close(fig)
+        
+        print(f" All results saved to '{output_dir}' directory")
+
+# ==================== MAIN FUNCTION ====================
+
+def main():
+    """Main function to demonstrate the image processing toolkit"""
+    processor = ImageProcessingToolkit()
+    
+    print("\n" + "="*60)
+    print("  IMAGE PROCESSING TOOLKIT")
+    print("="*60)
+    print("Available Techniques:")
+    print("• Noise Removal Filters")
+    print("• Edge Detection Methods") 
+    print("• Sharpening Techniques")
+    print("• Contrast Enhancement")
+    print("• Segmentation Algorithms")
+    print("• Morphological Operations")
+    print("• Frequency Domain Filters")
+    print("• Color Space Manipulation")
+    print("• Special Effects")
+    
+    print("\n Options:")
+    print("1. Process single image with all techniques")
+    print("2. Apply specific technique to image")
+    
+    choice = input("\n Enter your choice (1-2): ").strip()
+    
+    if choice == "1":
+        image_path = input("Enter image path: ").strip()
+        if os.path.exists(image_path):
+            image = cv2.imread(image_path)
+            if image is not None:
+                print(" Processing image with all techniques...")
+                results = processor.create_enhancement_pipeline(image)
+                processor.save_processing_results(results)
+                
+                # Display comparison
+                print(" Displaying results grid...")
+                fig = processor.create_comparison_grid(results)
+                plt.show()
+                
+                print(" All processing completed!")
+            else:
+                print(" Cannot read image file")
+        else:
+            print(" Image file not found")
+    
+    elif choice == "2":
+        image_path = input(" Enter image path: ").strip()
+        if os.path.exists(image_path):
+            image = cv2.imread(image_path)
+            if image is not None:
+                print("\n Available Techniques:")
+                techniques = [
+                    "Gaussian Blur", "Median Blur", "Bilateral Filter", "NLM Denoising",
+                    "Sobel Edges", "Canny Edges", "Laplacian Edges", "Prewitt Edges",
+                    "Unsharp Masking", "Laplacian Sharpening", "Custom Sharpening",
+                    "Histogram Equalization", "CLAHE", "Gamma Correction", "Contrast Stretching",
+                    "Otsu Thresholding", "Adaptive Thresholding", "K-means Segmentation",
+                    "Watershed", "GrabCut", "Erosion", "Dilation", "Opening", "Closing",
+                    "Fourier Transform", "High Pass Filter", "HSV", "LAB", "Color Quantization",
+                    "Emboss Effect", "Sepia Effect", "Sketch Effect"
+                ]
+                
+                for i, tech in enumerate(techniques, 1):
+                    print(f"{i:2d}. {tech}")
+                
+                try:
+                    tech_choice = int(input("👉Select technique number: ")) - 1
+                    if 0 <= tech_choice < len(techniques):
+                        selected_tech = techniques[tech_choice]
+                        print(f" Applying {selected_tech}...")
+                        
+                        # Apply selected technique
+                        if selected_tech == "Gaussian Blur":
+                            result = processor.apply_gaussian_blur(image)
+                        elif selected_tech == "Median Blur":
+                            result = processor.apply_median_blur(image)
+                        elif selected_tech == "Bilateral Filter":
+                            result = processor.apply_bilateral_filter(image)
+                        elif selected_tech == "NLM Denoising":
+                            result = processor.apply_nlm_denoising(image)
+                        elif selected_tech == "Sobel Edges":
+                            result = processor.apply_sobel_edge_detection(image)
+                        elif selected_tech == "Canny Edges":
+                            result = processor.apply_canny_edge_detection(image)
+                        elif selected_tech == "Laplacian Edges":
+                            result = processor.apply_laplacian_edge_detection(image)
+                        elif selected_tech == "Prewitt Edges":
+                            result = processor.apply_prewitt_edge_detection(image)
+                        elif selected_tech == "Unsharp Masking":
+                            result = processor.apply_unsharp_masking(image)
+                        elif selected_tech == "Laplacian Sharpening":
+                            result = processor.apply_laplacian_sharpening(image)
+                        elif selected_tech == "Custom Sharpening":
+                            result = processor.apply_custom_sharpening(image)
+                        elif selected_tech == "Histogram Equalization":
+                            result = processor.apply_histogram_equalization(image)
+                        elif selected_tech == "CLAHE":
+                            result = processor.apply_clahe(image)
+                        elif selected_tech == "Gamma Correction":
+                            result = processor.apply_gamma_correction(image)
+                        elif selected_tech == "Contrast Stretching":
+                            result = processor.apply_contrast_stretching(image)
+                        elif selected_tech == "Otsu Thresholding":
+                            result = processor.apply_otsu_thresholding(image)
+                        elif selected_tech == "Adaptive Thresholding":
+                            result = processor.apply_adaptive_thresholding(image)
+                        elif selected_tech == "K-means Segmentation":
+                            result = processor.apply_kmeans_segmentation(image)
+                        elif selected_tech == "Watershed":
+                            result = processor.apply_watershed_segmentation(image)
+                        elif selected_tech == "GrabCut":
+                            result = processor.apply_grabcut_segmentation(image)
+                        elif selected_tech == "Erosion":
+                            result = processor.apply_erosion(image)
+                        elif selected_tech == "Dilation":
+                            result = processor.apply_dilation(image)
+                        elif selected_tech == "Opening":
+                            result = processor.apply_opening(image)
+                        elif selected_tech == "Closing":
+                            result = processor.apply_closing(image)
+                        elif selected_tech == "Fourier Transform":
+                            result = processor.apply_fourier_transform(image)
+                        elif selected_tech == "High Pass Filter":
+                            result = processor.apply_high_pass_filter(image)
+                        elif selected_tech == "HSV":
+                            result = processor.convert_to_hsv(image)
+                        elif selected_tech == "LAB":
+                            result = processor.convert_to_lab(image)
+                        elif selected_tech == "Color Quantization":
+                            result = processor.apply_color_quantization(image)
+                        elif selected_tech == "Emboss Effect":
+                            result = processor.apply_emboss_effect(image)
+                        elif selected_tech == "Sepia Effect":
+                            result = processor.apply_sepia_effect(image)
+                        elif selected_tech == "Sketch Effect":
+                            result = processor.apply_sketch_effect(image)
+                        
+                        # Display results
+                        plt.figure(figsize=(12, 5))
+                        plt.subplot(1, 2, 1)
+                        plt.imshow(cv2.cvtColor(image, cv2.COLOR_BGR2RGB))
+                        plt.title('Original Image')
+                        plt.axis('off')
+                        
+                        plt.subplot(1, 2, 2)
+                        plt.imshow(cv2.cvtColor(result, cv2.COLOR_BGR2RGB))
+                        plt.title(f'After {selected_tech}')
+                        plt.axis('off')
+                        
+                        plt.tight_layout()
+                        plt.show()
+                        
+                        # Save result
+                        filename = f"result_{selected_tech.replace(' ', '_')}.jpg"
+                        cv2.imwrite(filename, result)
+                        print(f" Result saved as '{filename}'")
+                    else:
+                        print("Invalid technique selection")
+                except ValueError:
+                    print(" Please enter a valid number")
+            else:
+                print(" Cannot read image file")
+        else:
+            print("Image file not found")
+    
+    else:
+        print(" Invalid choice")
+
+if __name__ == "__main__":
+    main()

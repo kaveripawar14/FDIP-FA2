@@ -1,0 +1,68 @@
+import pandas as pd
+import json
+import os
+
+# Load the data first
+df = pd.read_csv('output/reports/vehicle_counts.csv')
+
+class TrafficAlertSystem:
+    def __init__(self, congestion_threshold=15, heavy_threshold=25):
+        self.congestion_threshold = congestion_threshold
+        self.heavy_threshold = heavy_threshold
+        
+    def generate_alerts(self, df):
+        """Generate traffic congestion alerts"""
+        alerts = []
+        
+        # High congestion alerts
+        high_congestion = df[df['total'] > self.heavy_threshold]
+        for _, row in high_congestion.iterrows():
+            alerts.append({
+                'level': 'HIGH',
+                'image': row['image'],
+                'vehicles': row['total'],
+                'message': f" HEAVY CONGESTION: {row['total']} vehicles detected in {row['image']}"
+            })
+        
+        # Moderate congestion alerts
+        moderate_congestion = df[(df['total'] > self.congestion_threshold) & (df['total'] <= self.heavy_threshold)]
+        for _, row in moderate_congestion.iterrows():
+            alerts.append({
+                'level': 'MODERATE', 
+                'image': row['image'],
+                'vehicles': row['total'],
+                'message': f" MODERATE CONGESTION: {row['total']} vehicles detected in {row['image']}"
+            })
+        
+        return alerts
+    
+    def print_alerts(self, alerts):
+        """Print traffic alerts"""
+        print("\nTRAFFIC CONGESTION ALERTS")
+        print("="*50)
+        
+        high_alerts = [a for a in alerts if a['level'] == 'HIGH']
+        moderate_alerts = [a for a in alerts if a['level'] == 'MODERATE']
+        
+        if high_alerts:
+            print("\n HIGH PRIORITY ALERTS:")
+            for alert in high_alerts[:5]:  # Show top 5
+                print(f"• {alert['message']}")
+        
+        if moderate_alerts:
+            print("\n MODERATE PRIORITY ALERTS:")
+            for alert in moderate_alerts[:3]:  # Show top 3
+                print(f"• {alert['message']}")
+        
+        print(f"\n Total Alerts: {len(alerts)} (High: {len(high_alerts)}, Moderate: {len(moderate_alerts)})")
+
+# Run alert system
+alert_system = TrafficAlertSystem(congestion_threshold=15, heavy_threshold=25)
+alerts = alert_system.generate_alerts(df)
+alert_system.print_alerts(alerts)
+
+# Save alerts to JSON
+with open('output/reports/traffic_alerts.json', 'w') as f:
+    json.dump(alerts, f, indent=2)
+
+print(f"\n Alerts saved: output/reports/traffic_alerts.json")
